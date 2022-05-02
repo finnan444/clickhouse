@@ -1,168 +1,100 @@
+// Licensed to ClickHouse, Inc. under one or more contributor
+// license agreements. See the NOTICE file distributed with
+// this work for additional information regarding copyright
+// ownership. ClickHouse, Inc. licenses this file to you under
+// the Apache License, Version 2.0 (the "License"); you may
+// not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package column
 
 import (
 	"fmt"
 	"reflect"
 	"strings"
-	"time"
 
-	"github.com/kshvakov/clickhouse/lib/binary"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/binary"
 )
 
-type Column interface {
-	Name() string
-	CHType() string
+type Type string
+
+func (t Type) params() string {
+	switch start, end := strings.Index(string(t), "("), strings.LastIndex(string(t), ")"); {
+	case len(t) == 0, start <= 0, end <= 0, end < start:
+		return ""
+	default:
+		return string(t[start+1 : end])
+	}
+}
+
+type Error struct {
+	ColumnType string
+	Err        error
+}
+
+func (e *Error) Error() string {
+	return fmt.Sprintf("%s: %s", e.ColumnType, e.Err)
+}
+
+type ColumnConverterError struct {
+	Op       string
+	Hint     string
+	From, To string
+}
+
+func (e *ColumnConverterError) Error() string {
+	var hint string
+	if len(e.Hint) != 0 {
+		hint += ". " + e.Hint
+	}
+	return fmt.Sprintf("clickhouse [%s]: converting %s to %s is unsupported%s", e.Op, e.From, e.To, hint)
+}
+
+type Interface interface {
+	Type() Type
+	Rows() int
+	Row(i int, ptr bool) interface{}
+	ScanRow(dest interface{}, row int) error
+	Append(v interface{}) (nulls []uint8, err error)
+	AppendRow(v interface{}) error
+	Decode(decoder *binary.Decoder, rows int) error
+	Encode(*binary.Encoder) error
 	ScanType() reflect.Type
-	Read(*binary.Decoder) (interface{}, error)
-	Write(*binary.Encoder, interface{}) error
-	defaultValue() interface{}
 }
 
-func Factory(name, chType string, timezone *time.Location) (Column, error) {
-	switch chType {
-	case "Int8":
-		return &Int8{
-			base: base{
-				name:    name,
-				chType:  chType,
-				valueOf: baseTypes[int8(0)],
-			},
-		}, nil
-	case "Int16":
-		return &Int16{
-			base: base{
-				name:    name,
-				chType:  chType,
-				valueOf: baseTypes[int16(0)],
-			},
-		}, nil
-	case "Int32":
-		return &Int32{
-			base: base{
-				name:    name,
-				chType:  chType,
-				valueOf: baseTypes[int32(0)],
-			},
-		}, nil
-	case "Int64":
-		return &Int64{
-			base: base{
-				name:    name,
-				chType:  chType,
-				valueOf: baseTypes[int64(0)],
-			},
-		}, nil
-	case "UInt8":
-		return &UInt8{
-			base: base{
-				name:    name,
-				chType:  chType,
-				valueOf: baseTypes[uint8(0)],
-			},
-		}, nil
-	case "UInt16":
-		return &UInt16{
-			base: base{
-				name:    name,
-				chType:  chType,
-				valueOf: baseTypes[uint16(0)],
-			},
-		}, nil
-	case "UInt32":
-		return &UInt32{
-			base: base{
-				name:    name,
-				chType:  chType,
-				valueOf: baseTypes[uint32(0)],
-			},
-		}, nil
-	case "UInt64":
-		return &UInt64{
-			base: base{
-				name:    name,
-				chType:  chType,
-				valueOf: baseTypes[uint64(0)],
-			},
-		}, nil
-	case "Float32":
-		return &Float32{
-			base: base{
-				name:    name,
-				chType:  chType,
-				valueOf: baseTypes[float32(0)],
-			},
-		}, nil
-	case "Float64":
-		return &Float64{
-			base: base{
-				name:    name,
-				chType:  chType,
-				valueOf: baseTypes[float64(0)],
-			},
-		}, nil
-	case "String":
-		return &String{
-			base: base{
-				name:    name,
-				chType:  chType,
-				valueOf: baseTypes[string("")],
-			},
-		}, nil
-	case "UUID":
-		return &UUID{
-			base: base{
-				name:    name,
-				chType:  chType,
-				valueOf: baseTypes[string("")],
-			},
-		}, nil
-	case "Date":
-		_, offset := time.Unix(0, 0).In(timezone).Zone()
-		return &Date{
-			base: base{
-				name:    name,
-				chType:  chType,
-				valueOf: baseTypes[time.Time{}],
-			},
-			Timezone: timezone,
-			offset:   int64(offset),
-		}, nil
-	case "DateTime":
-		return &DateTime{
-			base: base{
-				name:    name,
-				chType:  chType,
-				valueOf: baseTypes[time.Time{}],
-			},
-			Timezone: timezone,
-		}, nil
-	case "IPv4":
-		return &IPv4{
-			base: base{
-				name:   name,
-				chType: chType,
-			},
-		}, nil
-	case "IPv6":
-		return &IPv6{
-			base: base{
-				name:   name,
-				chType: chType,
-			},
-		}, nil
-	}
-
-	switch {
-	case strings.HasPrefix(chType, "Array"):
-		return parseArray(name, chType, timezone)
-	case strings.HasPrefix(chType, "Nullable"):
-		return parseNullable(name, chType, timezone)
-	case strings.HasPrefix(chType, "FixedString"):
-		return parseFixedString(name, chType)
-	case strings.HasPrefix(chType, "Enum8"), strings.HasPrefix(chType, "Enum16"):
-		return parseEnum(name, chType)
-	case strings.HasPrefix(chType, "Decimal"):
-		return parseDecimal(name, chType)
-	}
-	return nil, fmt.Errorf("column: unhandled type %v", chType)
+type CustomSerialization interface {
+	ReadStatePrefix(*binary.Decoder) error
+	WriteStatePrefix(*binary.Encoder) error
 }
+
+type UnsupportedColumnType struct {
+	t Type
+}
+
+func (u *UnsupportedColumnType) Type() Type                          { return u.t }
+func (u *UnsupportedColumnType) Rows() int                           { return 0 }
+func (u *UnsupportedColumnType) Row(int, bool) interface{}           { return nil }
+func (u *UnsupportedColumnType) ScanRow(interface{}, int) error      { return u }
+func (u *UnsupportedColumnType) Append(interface{}) ([]uint8, error) { return nil, u }
+func (u *UnsupportedColumnType) AppendRow(interface{}) error         { return u }
+func (u *UnsupportedColumnType) Decode(*binary.Decoder, int) error   { return u }
+func (u *UnsupportedColumnType) Encode(*binary.Encoder) error        { return u }
+func (u *UnsupportedColumnType) ScanType() reflect.Type              { return reflect.TypeOf(nil) }
+
+func (u *UnsupportedColumnType) Error() string {
+	return fmt.Sprintf("clickhouse: unsupported column type %q", u.t)
+}
+
+var (
+	_ error     = (*UnsupportedColumnType)(nil)
+	_ Interface = (*UnsupportedColumnType)(nil)
+)

@@ -1,3 +1,20 @@
+// Licensed to ClickHouse, Inc. under one or more contributor
+// license agreements. See the NOTICE file distributed with
+// this work for additional information regarding copyright
+// ownership. ClickHouse, Inc. licenses this file to you under
+// the Apache License, Version 2.0 (the "License"); you may
+// not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package cityhash102
 
 import (
@@ -55,11 +72,8 @@ func test(str string, lower uint64, upper uint64, t *testing.T) {
 
 func Test_Hash(t *testing.T) {
 	buildData(t)
-
-	var i int
-	for i = 0; i < len(testdata); i++ {
-		t.Logf("INFO: offset = %d, length = %d", i, len(testdata))
+	for i := 0; i < len(testdata); i++ {
+		//t.Logf("INFO: offset = %d, length = %d", i, len(testdata))
 		test(testdata[i].key, testdata[i].lower, testdata[i].upper, t)
 	}
-	return
 }
